@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import htmlContent from './htmlContent.js';
+import DashboardLayout from './components/DashboardLayout.jsx';
 import { init } from './dashboard.js';
 
 export default function App() {
@@ -8,6 +8,6 @@ export default function App() {
   }, []);
 
   return (
-    <div dangerouslySetInnerHTML={{ __html: htmlContent }} />
+    <DashboardLayout />
   );
 }
