@@ -1,0 +1,1058 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <title>Hermes Dashboard</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- ECharts for graph visualization -->
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+  <!-- roslib.js -->
+  <script src="https://cdn.jsdelivr.net/npm/roslib@1.3.0/build/roslib.min.js"></script>
+  <!-- Font Awesome -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <link rel="icon" href="/favicon.ico" type="image/x-icon">
+
+  <style>
+    #graph-container {
+      width: 100%;
+      height: 600px;
+      border: 1px solid #e5e7eb;
+      border-radius: 0.5rem;
+    }
+    .node-card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+    }
+    .status-indicator {
+      width: 12px; 
+      height: 12px; 
+      border-radius: 50%; 
+      display: inline-block; 
+      margin-right: 6px;
+    }
+    .status-active   { background-color: #10b981; }
+    .status-inactive { background-color: #ef4444; }
+    .status-unknown  { background-color: #6b7280; }
+
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+  </style>
+</head>
+<body class="bg-gray-50">
+<div class="container mx-auto px-4 py-8">
+
+  <!-- HEADER -->
+  <header class="mb-8">
+    <div class="flex justify-between items-center">
+      <h1 class="text-3xl font-bold text-gray-800">
+        <i class="fas fa-robot mr-2 text-indigo-600"></i> Hermes Dashboard
+      </h1>
+      <div class="flex items-center space-x-4">
+        <div id="connection-status" class="flex items-center">
+          <span class="status-indicator status-inactive" id="status-dot"></span>
+          <span id="status-text" class="text-sm font-medium">Déconnecté</span>
+        </div>
+        <button id="connect-btn" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors">
+          <i class="fas fa-plug mr-1"></i> Connecter
+        </button>
+      </div>
+    </div>
+    <p class="text-gray-600 mt-2">Surveillance et gestion du coeur Hermes en temps réel</p>
+  </header>
+
+  <!-- TABS NAV -->
+  <div class="mb-6 border-b border-gray-200">
+    <nav class="-mb-px flex space-x-8">
+      <button class="tab-button py-4 px-1 border-b-2 font-medium text-sm border-indigo-500 text-indigo-600" data-tab="nodes">
+        <i class="fas fa-project-diagram mr-1"></i> Nœuds
+      </button>
+      <button class="tab-button py-4 px-1 border-b-2 font-medium text-sm border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300" data-tab="topics">
+        <i class="fas fa-exchange-alt mr-1"></i> Topics
+      </button>
+      <button class="tab-button py-4 px-1 border-b-2 font-medium text-sm border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300" data-tab="services">
+        <i class="fas fa-concierge-bell mr-1"></i> Services
+      </button>
+      <!-- NOUVEL ONGLET "param" -->
+      <button class="tab-button py-4 px-1 border-b-2 font-medium text-sm border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300" data-tab="param">
+        <i class="fas fa-cog mr-1"></i> Paramètres
+      </button>
+    </nav>
+  </div>
+
+  <!-- TAB CONTENTS -->
+
+  <!-- 1) NODES TAB -->
+  <div class="tab-content active" id="nodes-tab">
+    <!-- Stats, node list, graph... -->
+    <!-- On passe la grid de 3 à 4 colonnes pour ajouter le total de messages -->
+    <div class="grid grid-cols-1 lg:grid-cols-4 gap-6 mb-6">
+      <div class="bg-white p-6 rounded-lg shadow">
+        <div class="flex items-center">
+          <div class="p-3 rounded-full bg-indigo-50 text-indigo-600">
+            <i class="fas fa-project-diagram text-xl"></i>
+          </div>
+          <div class="ml-4">
+            <h3 class="text-gray-500 text-sm font-medium">Nœuds actifs</h3>
+            <p class="text-2xl font-semibold text-gray-900" id="active-nodes-count">0</p>
+          </div>
+        </div>
+      </div>
+      <div class="bg-white p-6 rounded-lg shadow">
+        <div class="flex items-center">
+          <div class="p-3 rounded-full bg-green-50 text-green-600">
+            <i class="fas fa-link text-xl"></i>
+          </div>
+          <div class="ml-4">
+            <h3 class="text-gray-500 text-sm font-medium">Connexions</h3>
+            <p class="text-2xl font-semibold text-gray-900" id="connections-count">0</p>
+          </div>
+        </div>
+      </div>
+      <div class="bg-white p-6 rounded-lg shadow">
+        <div class="flex items-center">
+          <div class="p-3 rounded-full bg-blue-50 text-blue-600">
+            <i class="fas fa-tachometer-alt text-xl"></i>
+          </div>
+          <div class="ml-4">
+            <h3 class="text-gray-500 text-sm font-medium">Messages/s</h3>
+            <p class="text-2xl font-semibold text-gray-900" id="message-rate">0</p>
+          </div>
+        </div>
+      </div>
+      <!-- Ajout: Nombre total de messages reçus -->
+      <div class="bg-white p-6 rounded-lg shadow">
+        <div class="flex items-center">
+          <div class="p-3 rounded-full bg-yellow-50 text-yellow-600">
+            <i class="fas fa-comment-dots text-xl"></i>
+          </div>
+          <div class="ml-4">
+            <h3 class="text-gray-500 text-sm font-medium">Total Messages</h3>
+            <p class="text-2xl font-semibold text-gray-900" id="message-total">0</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-4 gap-6">
+      <!-- Node List -->
+      <div class="lg:col-span-1">
+        <div class="bg-white shadow rounded-lg overflow-hidden">
+          <div class="px-4 py-5 sm:px-6 bg-gray-50 border-b border-gray-200">
+            <h3 class="text-lg font-medium leading-6 text-gray-900">
+              <i class="fas fa-list mr-1"></i> Liste des nœuds
+            </h3>
+          </div>
+          <div class="bg-white overflow-y-auto" style="max-height: 500px;">
+            <ul class="divide-y divide-gray-200" id="node-list">
+              <li class="px-4 py-4 text-center text-gray-500">Aucun nœud détecté</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <!-- Graph Visualization -->
+      <div class="lg:col-span-3">
+        <div class="bg-white shadow rounded-lg p-4">
+          <div class="flex justify-between items-center mb-4">
+            <h3 class="text-lg font-medium leading-6 text-gray-900">
+              <i class="fas fa-network-wired mr-1"></i> Visualisation du graphe
+            </h3>
+            <div class="flex space-x-2">
+              <button id="refresh-graph" class="bg-gray-100 hover:bg-gray-200 text-gray-800 px-3 py-1 rounded-md text-sm font-medium transition-colors">
+                <i class="fas fa-sync-alt mr-1"></i> Rafraîchir
+              </button>
+              <button id="layout-graph" class="bg-gray-100 hover:bg-gray-200 text-gray-800 px-3 py-1 rounded-md text-sm font-medium transition-colors">
+                <i class="fas fa-project-diagram mr-1"></i> Réorganiser
+              </button>
+            </div>
+          </div>
+          <div id="graph-container"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 2) TOPICS TAB -->
+  <div class="tab-content" id="topics-tab">
+    <div class="bg-white shadow rounded-lg overflow-hidden">
+      <div class="px-4 py-5 sm:px-6 bg-gray-50 border-b border-gray-200">
+        <h3 class="text-lg font-medium leading-6 text-gray-900">
+          <i class="fas fa-exchange-alt mr-1"></i> Liste des Topics
+        </h3>
+      </div>
+      <div class="bg-white overflow-y-auto" style="max-height: 600px;">
+        <!-- On ajoute deux colonnes : Total et Msg/s -->
+        <table class="min-w-full divide-y divide-gray-200">
+          <thead class="bg-gray-50">
+            <tr>
+              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Nom</th>
+              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
+              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Pub/Sub</th>
+              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total</th>
+              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Msg/s</th>
+            </tr>
+          </thead>
+          <tbody class="bg-white divide-y divide-gray-200" id="topic-list">
+            <tr><td colspan="5" class="px-6 py-4 text-center text-gray-500">Aucun topic détecté</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- 3) SERVICES TAB -->
+  <div class="tab-content" id="services-tab">
+    <div class="bg-white shadow rounded-lg overflow-hidden">
+      <div class="px-4 py-5 sm:px-6 bg-gray-50 border-b border-gray-200">
+        <h3 class="text-lg font-medium leading-6 text-gray-900">
+          <i class="fas fa-concierge-bell mr-1"></i> Liste des Services
+        </h3>
+      </div>
+      <div class="bg-white overflow-y-auto" style="max-height: 600px;">
+        <table class="min-w-full divide-y divide-gray-200">
+          <thead class="bg-gray-50">
+            <tr>
+              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Nom</th>
+              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
+              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Nœud</th>
+            </tr>
+          </thead>
+          <tbody class="bg-white divide-y divide-gray-200" id="service-list">
+            <tr><td colspan="3" class="px-6 py-4 text-center text-gray-500">Aucun service détecté</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- 4) PARAM TAB -->
+  <div class="tab-content" id="param-tab">
+    <div class="bg-white shadow rounded-lg overflow-hidden p-6">
+      <h3 class="text-lg font-medium leading-6 text-gray-900 mb-4">
+        <i class="fas fa-cog mr-1"></i> Gérer les Paramètres
+      </h3>
+
+      <!-- Sélection du nœud -->
+      <div class="mb-4">
+        <label for="param-node-select" class="block text-sm font-medium text-gray-700">Nœud</label>
+        <select id="param-node-select" class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 text-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500">
+          <option value="">Sélectionner un nœud</option>
+        </select>
+      </div>
+
+      <!-- Bouton list_parameters -->
+      <div class="mb-4">
+        <button id="list-params-btn" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors">
+          <i class="fas fa-list mr-1"></i> list_parameters
+        </button>
+      </div>
+
+      <!-- Sélection du paramètre -->
+      <div class="mb-4">
+        <label for="param-name-select" class="block text-sm font-medium text-gray-700">Paramètre</label>
+        <select id="param-name-select" class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 text-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500">
+          <option value="">Aucun param pour l’instant</option>
+        </select>
+      </div>
+
+      <!-- Section "type détecté" + champ de saisie -->
+      <div class="mb-4" id="param-info-div" style="display: none;">
+        <p class="text-sm text-gray-600 mb-1">Type détecté : <span id="param-type-label" class="font-semibold"> inconnu </span></p>
+        <!-- On peut afficher un input/checkbox en fonction du type -->
+        <input type="text" id="param-value-input" class="mt-1 mb-2 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 text-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500" placeholder="Entrez la valeur" style="display: none;">
+        <div id="param-value-bool-div" class="mb-2" style="display: none;">
+          <label class="inline-flex items-center text-sm">
+            <input type="checkbox" id="param-value-bool" class="form-checkbox h-4 w-4 text-indigo-600">
+            <span class="ml-2">Valeur booléenne</span>
+          </label>
+        </div>
+      </div>
+
+      <!-- Boutons GET / SET -->
+      <div class="flex space-x-2">
+        <button id="param-get-btn" class="bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-md text-sm font-medium transition-colors">
+          <i class="fas fa-download mr-1"></i> GET
+        </button>
+        <button id="param-set-btn" class="bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-md text-sm font-medium transition-colors">
+          <i class="fas fa-upload mr-1"></i> SET
+        </button>
+      </div>
+
+      <!-- Zone d’affichage de la valeur ou des erreurs -->
+      <div id="param-result" class="mt-3 text-sm text-gray-700 bg-white p-3 border border-gray-200 rounded">
+        <em>Aucune action</em>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+//////////////////////////////////////////////////////////////////////////////////
+// RÉSEAU ROS, RENSEIGNEMENTS GLOBAUX
+//////////////////////////////////////////////////////////////////////////////////
+let ros = new ROSLIB.Ros({});
+let nodes = [];
+let nodeDetailsMap = new Map(); // node -> {publishing:Set,subscribing:Set,services:Set}
+let topicsMap      = new Map(); // topic -> {type, publishers:Set, subscribers:Set}
+let servicesMap    = new Map();
+let connections    = [];
+let graphChart     = null;
+
+// Pour le message rate global
+let tempMessageCount = 0;    // remis à zero chaque seconde pour calculer le rate
+let totalMessageCount= 0;    // cumul global (jamais remis à zero)
+let lastMsgTime      = Date.now(); 
+let messageRate      = 0;
+
+// DOM
+const connectBtn       = document.getElementById('connect-btn');
+const statusDot        = document.getElementById('status-dot');
+const statusText       = document.getElementById('status-text');
+const activeNodesCount = document.getElementById('active-nodes-count');
+const connectionsCount = document.getElementById('connections-count');
+const messageRateElem  = document.getElementById('message-rate');
+const messageTotalElem = document.getElementById('message-total');
+const nodeListElem     = document.getElementById('node-list');
+const topicListElem    = document.getElementById('topic-list');
+const serviceListElem  = document.getElementById('service-list');
+
+const refreshGraphBtn  = document.getElementById('refresh-graph');
+const layoutGraphBtn   = document.getElementById('layout-graph');
+
+const tabButtons  = document.querySelectorAll('.tab-button');
+const tabContents = document.querySelectorAll('.tab-content');
+
+//////////////////////////////////////////////////////////////////////////////////
+// ONGLET PARAM
+//////////////////////////////////////////////////////////////////////////////////
+const paramNodeSelect   = document.getElementById('param-node-select');
+const listParamsBtn     = document.getElementById('list-params-btn');
+const paramNameSelect   = document.getElementById('param-name-select');
+const paramInfoDiv      = document.getElementById('param-info-div');
+const paramTypeLabel    = document.getElementById('param-type-label');
+const paramValueInput   = document.getElementById('param-value-input');
+const paramValueBoolDiv = document.getElementById('param-value-bool-div');
+const paramValueBoolChk = document.getElementById('param-value-bool');
+const paramGetBtn       = document.getElementById('param-get-btn');
+const paramSetBtn       = document.getElementById('param-set-btn');
+const paramResult       = document.getElementById('param-result');
+
+// Pour stocker les abonnements par topic
+let topicSubscribers = new Map(); 
+// Pour les stats par topic : { totalCount, tempCount, rate }
+let topicStats = new Map();
+
+//////////////////////////////////////////////////////////////////////////////////
+// TABS
+//////////////////////////////////////////////////////////////////////////////////
+tabButtons.forEach(btn => {
+  btn.addEventListener('click', ()=>{
+    const tabId = btn.getAttribute('data-tab');
+    tabButtons.forEach(b=>{
+      b.classList.remove('border-indigo-500','text-indigo-600');
+      b.classList.add('border-transparent','text-gray-500');
+    });
+    btn.classList.add('border-indigo-500','text-indigo-600');
+    btn.classList.remove('border-transparent','text-gray-500');
+    tabContents.forEach(c=>c.classList.remove('active'));
+    document.getElementById(tabId+'-tab').classList.add('active');
+  });
+});
+
+//////////////////////////////////////////////////////////////////////////////////
+// CONNEXION ROS
+//////////////////////////////////////////////////////////////////////////////////
+connectBtn.addEventListener('click', ()=>{
+  if (ros.isConnected) {
+    ros.close();
+  } else {
+    connectToROS();
+  }
+});
+
+ros.on('connection', ()=>{
+  console.log("Connected to ROS");
+  statusDot.classList.remove('status-inactive','status-unknown');
+  statusDot.classList.add('status-active');
+  statusText.textContent='Connecté';
+  connectBtn.innerHTML='<i class="fas fa-plug mr-1"></i> Déconnecter';
+  connectBtn.classList.remove('bg-indigo-600','hover:bg-indigo-700');
+  connectBtn.classList.add('bg-red-600','hover:bg-red-700');
+
+  fetchAllData();       // Récupération initiale
+  setInterval(calcMsgRate,1000);  // Mise à jour du rate toutes les secondes
+});
+
+ros.on('error', (err)=>{
+  console.error("ROS error:", err);
+  statusDot.classList.remove('status-active','status-unknown');
+  statusDot.classList.add('status-inactive');
+  statusText.textContent='Erreur de connexion';
+});
+
+ros.on('close', ()=>{
+  console.warn("Disconnected");
+  statusDot.classList.remove('status-active','status-unknown');
+  statusDot.classList.add('status-inactive');
+  statusText.textContent='Déconnecté';
+  connectBtn.innerHTML='<i class="fas fa-plug mr-1"></i> Connecter';
+  connectBtn.classList.remove('bg-red-600','hover:bg-red-700');
+  connectBtn.classList.add('bg-indigo-600','hover:bg-indigo-700');
+
+  // reset
+  nodes=[];
+  nodeDetailsMap.clear();
+  topicsMap.clear();
+  servicesMap.clear();
+  connections=[];
+  // stop et vider les abonnements
+  for(const [topic, sub] of topicSubscribers.entries()){
+    try{ sub.unsubscribe(); }catch(e){}
+  }
+  topicSubscribers.clear();
+  topicStats.clear();
+
+  updateUI();
+});
+
+// ros : instance déjà créée de ROSLIB.Ros() ou équivalent
+function connectToROS(port = 5010) {
+  /* 1. Détermine le schéma (ws:// ou wss://) à partir du protocole HTTP/HTTPS
+     2. Récupère le hostname de la page (ex. : my-robot.lab.fr)
+     3. Assemble l’URL complète du WebSocket */
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const host     = window.location.hostname;           
+  const url      = `${protocol}//${host}:${port}`;     
+
+  try {
+    ros.connect(url);
+
+    // feedback UI
+    statusDot.classList.remove('status-inactive','status-active');
+    statusDot.classList.add('status-unknown');
+    statusText.textContent = 'Connexion en cours…';
+  } catch (e) {
+    console.error('connect error', e);
+
+    statusDot.classList.remove('status-active', 'status-unknown');
+    statusDot.classList.add('status-inactive');
+    statusText.textContent = 'Erreur de connexion';
+  }
+}
+
+
+//////////////////////////////////////////////////////////////////////////////////
+// RÉCUPÉRATION DES DONNÉES GLOBALES
+//////////////////////////////////////////////////////////////////////////////////
+async function fetchAllData(){
+  try {
+    await getNodes();
+    for(let n of nodes){
+      await getNodeDetails(n);
+    }
+    await getTopics();
+    await getServices();
+    buildConnections();
+    updateUI();
+
+    // Après avoir récupéré les topics, on s'abonne pour compter les messages
+    subscribeToAllTopics();
+  } catch(e){
+    console.error("fetchAllData error:", e);
+  }
+}
+
+// /rosapi/nodes
+function getNodes(){
+  return new Promise((resolve, reject)=>{
+    let service = new ROSLIB.Service({
+      ros: ros,
+      name:'/rosapi/nodes',
+      serviceType:'rosapi/Nodes'
+    });
+    service.callService({}, (resp)=>{
+      nodes=resp.nodes||[];
+      resolve();
+    }, (err)=>reject(err));
+  });
+}
+
+// /rosapi/node_details
+function getNodeDetails(nodeName){
+  return new Promise((resolve)=>{
+    let service = new ROSLIB.Service({
+      ros: ros,
+      name:'/rosapi/node_details',
+      serviceType:'rosapi/NodeDetails'
+    });
+    let req = { node: nodeName };
+    service.callService(req, (resp)=>{
+      nodeDetailsMap.set(nodeName,{
+        publishing:  new Set(resp.publishing  ||[]),
+        subscribing: new Set(resp.subscribing ||[]),
+        services:    new Set(resp.services    ||[])
+      });
+      resolve();
+    }, (err)=>{
+      console.warn("node_details fail:", nodeName, err);
+      nodeDetailsMap.set(nodeName,{
+        publishing:new Set(),subscribing:new Set(),services:new Set()
+      });
+      resolve();
+    });
+  });
+}
+
+// /rosapi/topics
+function getTopics(){
+  return new Promise((resolve, reject)=>{
+    let service=new ROSLIB.Service({
+      ros: ros,
+      name:'/rosapi/topics',
+      serviceType:'rosapi/Topics'
+    });
+    service.callService({}, (resp)=>{
+      if(resp.topics && resp.types){
+        for(let i=0;i<resp.topics.length;i++){
+          topicsMap.set(resp.topics[i],{
+            type:resp.types[i], 
+            publishers:new Set(), 
+            subscribers:new Set()
+          });
+        }
+      }
+      // Compléter par nodeDetails
+      for(let [node,nd] of nodeDetailsMap.entries()){
+        for(let t of nd.publishing){
+          if(!topicsMap.has(t)){
+            topicsMap.set(t,{type:'?',publishers:new Set(),subscribers:new Set()});
+          }
+          topicsMap.get(t).publishers.add(node);
+        }
+        for(let t of nd.subscribing){
+          if(!topicsMap.has(t)){
+            topicsMap.set(t,{type:'?',publishers:new Set(),subscribers:new Set()});
+          }
+          topicsMap.get(t).subscribers.add(node);
+        }
+      }
+      resolve();
+    }, (err)=>reject(err));
+  });
+}
+
+// /rosapi/services + /rosapi/service_type
+function getServices(){
+  return new Promise((resolve, reject)=>{
+    let service=new ROSLIB.Service({
+      ros: ros,
+      name:'/rosapi/services',
+      serviceType:'rosapi/Services'
+    });
+    service.callService({}, async (resp)=>{
+      let allSrv=resp.services||[];
+      let promiseArr = allSrv.map(s=> getServiceType(s));
+      await Promise.all(promiseArr);
+      // identifier providers
+      for(let [srvName, info] of servicesMap.entries()){
+        for(let [node, nd] of nodeDetailsMap.entries()){
+          if(nd.services.has(srvName)){
+            info.providers.add(node);
+          }
+        }
+      }
+      resolve();
+    }, (err)=>reject(err));
+  });
+}
+function getServiceType(srvName){
+  return new Promise((resolve)=>{
+    let service = new ROSLIB.Service({
+      ros: ros,
+      name:'/rosapi/service_type',
+      serviceType:'rosapi/ServiceType'
+    });
+    service.callService({service:srvName},(resp)=>{
+      if(!servicesMap.has(srvName)){
+        servicesMap.set(srvName,{type:resp.type, providers:new Set()});
+      } else {
+        servicesMap.get(srvName).type=resp.type;
+      }
+      resolve();
+    },(err)=>{
+      if(!servicesMap.has(srvName)){
+        servicesMap.set(srvName,{type:'unknown',providers:new Set()});
+      }
+      resolve();
+    });
+  });
+}
+
+// Construire la liste de connexions
+function buildConnections(){
+  connections=[];
+  let allNodes=Array.from(nodeDetailsMap.keys());
+  for(let i=0;i<allNodes.length;i++){
+    for(let j=i+1;j<allNodes.length;j++){
+      let A=allNodes[i], B=allNodes[j];
+      let nA=nodeDetailsMap.get(A), nB=nodeDetailsMap.get(B);
+      if(!nA||!nB) continue;
+      let shared1=[...nA.publishing].filter(t=>nB.subscribing.has(t));
+      let shared2=[...nB.publishing].filter(t=>nA.subscribing.has(t));
+      if(shared1.length>0||shared2.length>0){
+        connections.push({source:A,target:B});
+      }
+    }
+  }
+}
+
+//////////////////////////////////////////////////////////////////////////////////
+// ABONNEMENT AUX TOPICS & COMPTEUR DE MESSAGES
+//////////////////////////////////////////////////////////////////////////////////
+function subscribeToAllTopics(){
+  // se désabonner d’abord (au cas où)
+  for(const [topic, sub] of topicSubscribers.entries()){
+    try{ sub.unsubscribe(); }catch(e){}
+  }
+  topicSubscribers.clear();
+  topicStats.clear();
+
+  for(let [topicName, info] of topicsMap.entries()){
+    // Si on n’a pas de type défini (ou '?'), on ne s’abonne pas
+    if(!info.type || info.type==='?' || info.type==='unknown') {
+      continue;
+    }
+    // Initialiser les stats sur ce topic
+    topicStats.set(topicName, {
+      totalCount: 0,
+      tempCount:  0,
+      rate: 0
+    });
+
+    // Créer l’abonnement
+    let sub = new ROSLIB.Topic({
+      ros: ros,
+      name: topicName,
+      messageType: info.type
+    });
+    sub.subscribe((msg)=>{
+      // Incrémenter les compteurs globaux
+      tempMessageCount++;
+      totalMessageCount++;
+
+      // Incrémenter les compteurs du topic
+      let st = topicStats.get(topicName);
+      if(st){
+        st.tempCount++;
+        st.totalCount++;
+      }
+    });
+    topicSubscribers.set(topicName, sub);
+  }
+}
+
+//////////////////////////////////////////////////////////////////////////////////
+// MISE À JOUR UI
+//////////////////////////////////////////////////////////////////////////////////
+function updateUI(){
+  updateNodesList();
+  updateTopicsList();
+  updateServicesList();
+  updateGraph();
+
+  // remplir paramNodeSelect
+  paramNodeSelect.innerHTML='<option value="">(choisir un nœud)</option>';
+  nodes.forEach(n=>{
+    let opt=document.createElement('option');
+    opt.value=n; opt.textContent=n;
+    paramNodeSelect.appendChild(opt);
+  });
+
+  activeNodesCount.textContent=nodes.length;
+  connectionsCount.textContent=connections.length;
+}
+
+function updateNodesList(){
+  nodeListElem.innerHTML='';
+  if(nodes.length===0){
+    nodeListElem.innerHTML='<li class="px-4 py-4 text-center text-gray-500">Aucun nœud détecté</li>';
+    return;
+  }
+  for(let nodeName of nodes){
+    let nd=nodeDetailsMap.get(nodeName);
+    let pubCount= nd? nd.publishing.size:0;
+    let subCount= nd? nd.subscribing.size:0;
+    let srvCount= nd? nd.services.size:0;
+    let li=document.createElement('li');
+    li.className='px-4 py-3 hover:bg-gray-50 cursor-pointer';
+    li.innerHTML=`
+      <div class="flex items-center">
+        <span class="status-indicator status-active"></span>
+        <span class="text-sm font-medium text-gray-900">${nodeName}</span>
+      </div>
+      <div class="mt-1 text-xs text-gray-500">
+        <span class="inline-block bg-blue-100 text-blue-800 px-2 py-0.5 rounded">${pubCount+subCount} topics</span>
+        <span class="inline-block bg-green-100 text-green-800 px-2 py-0.5 rounded ml-1">${srvCount} services</span>
+      </div>
+    `;
+    nodeListElem.appendChild(li);
+  }
+}
+
+function updateTopicsList(){
+  topicListElem.innerHTML='';
+  if(topicsMap.size===0){
+    topicListElem.innerHTML='<tr><td colspan="5" class="px-6 py-4 text-center text-gray-500">Aucun topic détecté</td></tr>';
+    return;
+  }
+  for(let [tn,info] of topicsMap.entries()){
+    let pubCount=info.publishers.size;
+    let subCount=info.subscribers.size;
+
+    // Récupérer stats
+    let st = topicStats.get(tn);
+    let total = st ? st.totalCount : 0;
+    let rate  = st ? st.rate.toFixed(1) : '0.0';
+
+    let tr=document.createElement('tr');
+    tr.className='hover:bg-gray-50';
+    tr.innerHTML=`
+      <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">${tn}</td>
+      <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${info.type}</td>
+      <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+        <span class="inline-block bg-blue-100 text-blue-800 px-2 py-0.5 rounded">${pubCount} pubs</span>
+        <span class="inline-block bg-green-100 text-green-800 px-2 py-0.5 rounded ml-1">${subCount} subs</span>
+      </td>
+      <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${total}</td>
+      <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${rate}</td>
+    `;
+    topicListElem.appendChild(tr);
+  }
+}
+
+function updateServicesList(){
+  serviceListElem.innerHTML='';
+  if(servicesMap.size===0){
+    serviceListElem.innerHTML='<tr><td colspan="3" class="px-6 py-4 text-center text-gray-500">Aucun service détecté</td></tr>';
+    return;
+  }
+  for(let [srvName,info] of servicesMap.entries()){
+    let providers=Array.from(info.providers).join(', ')||'Inconnu';
+    let tr=document.createElement('tr');
+    tr.className='hover:bg-gray-50';
+    tr.innerHTML=`
+      <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">${srvName}</td>
+      <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${info.type}</td>
+      <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${providers}</td>
+    `;
+    serviceListElem.appendChild(tr);
+  }
+}
+
+//////////////////////////////////////////////////////////////////////////////////
+// GESTION DU GRAPHE
+//////////////////////////////////////////////////////////////////////////////////
+function updateGraph(){
+  if(!graphChart){
+    graphChart = echarts.init(document.getElementById('graph-container'));
+  }
+  let nodeData = nodes.map(n=>({
+    id:n, 
+    name:n, 
+    symbolSize:30,
+    label:{show:true},
+    itemStyle:{ color:'#6366f1'}
+  }));
+  let linkData = connections.map(c=>({
+    source:c.source, 
+    target:c.target, 
+    lineStyle:{color:'#9ca3af'}
+  }));
+
+  let opt = {
+    tooltip:{},
+    series:[{
+      type:'graph',
+      layout:'force',
+      data:nodeData,
+      links:linkData,
+      roam:true,              
+      draggable:true,         
+      label:{position:'right'},
+      force:{repulsion:100, edgeLength:100},
+      emphasis:{
+        focus:'adjacency', 
+        lineStyle:{width:3}
+      }
+    }]
+  };
+  graphChart.setOption(opt);
+
+  setTimeout(()=>{
+    graphChart.dispatchAction({type:'force', iterations:100});
+  },300);
+}
+
+layoutGraphBtn.addEventListener('click',()=>{
+  if(graphChart){
+    let opt = graphChart.getOption();
+    opt.series[0].layout = 'none';
+    opt.series[0].force = null;    
+    opt.series[0].draggable = true;
+    graphChart.setOption(opt);
+  }
+});
+
+refreshGraphBtn.addEventListener('click',()=>{
+  updateGraph();
+});
+
+//////////////////////////////////////////////////////////////////////////////////
+// MESSAGE RATE (CALCUL TOUTES LES SECONDES)
+//////////////////////////////////////////////////////////////////////////////////
+function calcMsgRate(){
+  let now = Date.now();
+  let dt  = (now - lastMsgTime)/1000; // en s
+  if(dt>0){
+    messageRate = tempMessageCount/dt;
+    // On vide le compteur temporaire
+    tempMessageCount=0;
+    lastMsgTime=now;
+
+    // Calcul rate pour chaque topic
+    for(let [tn, st] of topicStats.entries()){
+      st.rate = st.tempCount / dt;
+      st.tempCount = 0;
+    }
+
+    // Mise à jour UI
+    messageRateElem.textContent = messageRate.toFixed(1);
+    messageTotalElem.textContent= totalMessageCount;
+    updateTopicsList();
+  }
+}
+
+//////////////////////////////////////////////////////////////////////////////////
+// ONGLET PARAM : list_parameters -> describe_parameters -> get/set
+//////////////////////////////////////////////////////////////////////////////////
+listParamsBtn.addEventListener('click', ()=>{
+  let nodeSel = paramNodeSelect.value;
+  if(!nodeSel){
+    alert("Sélectionnez d’abord un nœud");
+    return;
+  }
+  let serviceName = `${nodeSel}/list_parameters`;
+  let service = new ROSLIB.Service({
+    ros: ros,
+    name: serviceName,
+    serviceType: 'rcl_interfaces/srv/ListParameters'
+  });
+  let request = new ROSLIB.ServiceRequest({});
+  service.callService(request, (resp)=>{
+    if(!resp.result || !resp.result.names){
+      paramNameSelect.innerHTML='<option value="">(aucun param ?)</option>';
+      alert("Aucun paramètre trouvé (ou node sans param)");
+      return;
+    }
+    let names=resp.result.names;
+    paramNameSelect.innerHTML='';
+    if(names.length===0){
+      paramNameSelect.innerHTML='<option value="">(aucun param)</option>';
+      alert("Aucun paramètre sur ce nœud");
+      return;
+    }
+    names.forEach(param=>{
+      let opt=document.createElement('option');
+      opt.value=param; opt.textContent=param;
+      paramNameSelect.appendChild(opt);
+    });
+    paramInfoDiv.style.display='none';
+  }, (err)=>{
+    alert("list_parameters échoué : "+err);
+  });
+});
+
+// describe_parameters
+paramNameSelect.addEventListener('change', ()=>{
+  let nodeSel = paramNodeSelect.value;
+  let paramSel= paramNameSelect.value;
+  if(!nodeSel || !paramSel) {
+    paramInfoDiv.style.display='none';
+    return;
+  }
+  let srvName=`${nodeSel}/describe_parameters`;
+  let describeSvc=new ROSLIB.Service({
+    ros:ros,
+    name: srvName,
+    serviceType:'rcl_interfaces/srv/DescribeParameters'
+  });
+  let req = new ROSLIB.ServiceRequest({ names: [paramSel] });
+  describeSvc.callService(req, (resp)=>{
+    if(!resp.descriptors || resp.descriptors.length===0){
+      paramInfoDiv.style.display='none';
+      alert("Paramètre introuvable ou pas de descriptor");
+      return;
+    }
+    paramInfoDiv.style.display='block';
+    let desc=resp.descriptors[0];
+    let t=desc.type; // 1=bool,2=int,3=double,4=string
+    let typeStr = paramTypeToString(t);
+    paramTypeLabel.textContent = typeStr;
+
+    paramValueInput.style.display='none';
+    paramValueBoolDiv.style.display='none';
+
+    switch(t){
+      case 1: // bool
+        paramValueBoolDiv.style.display='block';
+        paramValueBoolChk.checked=false;
+        break;
+      case 2: // int
+      case 3: // double
+      case 4: // string
+        paramValueInput.style.display='block';
+        paramValueInput.value='';
+        paramValueInput.placeholder=`Tapez une valeur ${typeStr}`;
+        break;
+      default:
+        break;
+    }
+  },(err)=>{
+    alert("describe_parameters fail : "+err);
+  });
+});
+
+// get_parameters
+paramGetBtn.addEventListener('click', ()=>{
+  let nodeSel=paramNodeSelect.value;
+  let paramSel=paramNameSelect.value;
+  if(!nodeSel||!paramSel){
+    alert("Choisir un nœud et un paramètre d’abord");
+    return;
+  }
+  let srvName=`${nodeSel}/get_parameters`;
+  let getSvc=new ROSLIB.Service({
+    ros:ros,
+    name:srvName,
+    serviceType:'rcl_interfaces/srv/GetParameters'
+  });
+  let req=new ROSLIB.ServiceRequest({ names:[paramSel] });
+  getSvc.callService(req,(resp)=>{
+    if(!resp.values || resp.values.length===0){
+      paramResult.innerHTML='<em>Param non configuré ?</em>';
+      return;
+    }
+    let val=resp.values[0];
+    let strVal='';
+    switch(val.type){
+      case 1: strVal = val.bool_value? 'true':'false'; break;
+      case 2: strVal = val.integer_value.toString(); break;
+      case 3: strVal = val.double_value.toString(); break;
+      case 4: strVal = val.string_value; break;
+      default: strVal='(pas défini ou type inconnu)';
+    }
+    paramResult.innerHTML=`<p class="text-sm">Valeur actuelle de <strong>${paramSel}</strong>: <code>${strVal}</code></p>`;
+  }, (err)=>{
+    paramResult.innerHTML=`<p class="text-red-600">Echec get_parameters: ${err}</p>`;
+  });
+});
+
+// set_parameters
+paramSetBtn.addEventListener('click', ()=>{
+  let nodeSel=paramNodeSelect.value;
+  let paramSel=paramNameSelect.value;
+  if(!nodeSel||!paramSel){
+    alert("Choisir un nœud et un paramètre d’abord");
+    return;
+  }
+  let tLabel=paramTypeLabel.textContent;
+  let paramVal;
+  if(tLabel.includes('bool')){
+    paramVal = paramValueBoolChk.checked;
+  } else if(tLabel.includes('int')){
+    let s=paramValueInput.value.trim();
+    paramVal=parseInt(s,10);
+    if(isNaN(paramVal)){ alert("Entier invalide"); return; }
+  } else if(tLabel.includes('double')){
+    let s=paramValueInput.value.trim();
+    paramVal=parseFloat(s);
+    if(isNaN(paramVal)){ alert("Double invalide"); return; }
+  } else if(tLabel.includes('string')){
+    paramVal=paramValueInput.value;
+  } else {
+    alert("Type inconnu, impossible de set");
+    return;
+  }
+  let paramType = guessParamType(tLabel);
+
+  let srvName=`${nodeSel}/set_parameters`;
+  let setSvc=new ROSLIB.Service({
+    ros:ros,
+    name:srvName,
+    serviceType:'rcl_interfaces/srv/SetParameters'
+  });
+  let req=new ROSLIB.ServiceRequest({
+    parameters:[
+      {
+        name:paramSel,
+        value:{
+          type:paramType,
+          bool_value:   (paramType===1)? paramVal:false,
+          integer_value:(paramType===2)? paramVal:0,
+          double_value: (paramType===3)? paramVal:0.0,
+          string_value: (paramType===4)? paramVal:''
+        }
+      }
+    ]
+  });
+  setSvc.callService(req,(resp)=>{
+    if(!resp.results || resp.results.length===0){
+      paramResult.innerHTML='<em>Pas de résultat ?</em>';
+      return;
+    }
+    let r=resp.results[0];
+    if(r.successful){
+      paramResult.innerHTML=`<p class="text-green-600">SET OK: ${r.reason}</p>`;
+    } else {
+      paramResult.innerHTML=`<p class="text-red-600">Echec: ${r.reason}</p>`;
+    }
+  },(err)=>{
+    paramResult.innerHTML=`<p class="text-red-600">Echec set_parameters: ${err}</p>`;
+  });
+});
+
+//////////////////////////////////////////////////////////////////////////////////
+// Fonctions utilitaires
+//////////////////////////////////////////////////////////////////////////////////
+function paramTypeToString(num){
+  switch(num){
+    case 1: return "bool";
+    case 2: return "integer";
+    case 3: return "double";
+    case 4: return "string";
+    case 5: return "byte_array";
+    default: return "(param_not_set)";
+  }
+}
+function guessParamType(label){
+  if(label.includes('bool'))    return 1;
+  if(label.includes('int'))     return 2;
+  if(label.includes('double'))  return 3;
+  if(label.includes('string'))  return 4;
+  return 0; // PARAMETER_NOT_SET
+}
+
+//////////////////////////////////////////////////////////////////////////////////
+// INIT
+//////////////////////////////////////////////////////////////////////////////////
+function init(){
+  updateGraph();   // graph vide en attendant la connexion
+  connectToROS();
+}
+init();
+</script>
+</body>
+</html>
